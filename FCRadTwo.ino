@@ -253,7 +253,7 @@ void loop() {
   //perform flight logic
   switch (flight_status) {
     case 0:
-      if (acc > 30) {
+      if (acc > 40) {
         //Big Boy Launch
 
         flight_status = PoweredFlight;
@@ -261,7 +261,7 @@ void loop() {
       break;
 
     case 1:
-      if (acc < 20) {
+      if (acc < 30) {
         flight_status = Coasting;
       }
       break;

@@ -89,10 +89,10 @@ bool Barometer::IsDescending()
     highestAltitude = currentHeight;
     return false;
   }
-  else if (currentHeight<(highestAltitude - 10.00))
+  else if (currentHeight<(highestAltitude - 15.00))
   {    //alter value of constant where appropriate after testing, change to 500 - 1000 ms delay after apogee
     descentCount++;
-    if (descentCount == 50)
+    if (descentCount == 60)
     {
       return true;
     }

@@ -5,7 +5,7 @@
   * Created For: Strath AIS
   * Created By: Logan
   * Created On: 16/12/23
-  * Last Updated: 07/06/24
+  * Last Updated: 10/06/24
   * Updated By: Logan, Jamie, Finlay, Alfredo
 */
 
@@ -50,17 +50,17 @@ float pressure;
 float rotational_velocity;
 float maxAlt;
 
-
-
-
-//important output pins for parachutes,
-const int drogue_deploy_pin = 50;
-const int main_deploy_pin = 52;
-const int buzzer = 7;  //needs to be a PWM capable pin
+//important output pins for parachutes and safety
+const int drogue_deploy_pin = 26;
+const int main_deploy_pin = 24;
+const int buzzer = 11;  //needs to be a PWM capable pin
 const int gpsRead = 2;
-const int ignRead = 3;
+const int ignRead = 38;
+const int fakeGnd = 8;
 bool GpsArmFlag = false;
 bool IgnArmFlag = false;
+bool garmed = false;
+bool iarmed = false;
 
 /*
 String statusToString(status flightStatus) {
@@ -77,24 +77,27 @@ String statusToString(status flightStatus) {
 */
 
 void SoundBuzzer(unsigned long timer){
+  Serial.println("buzzing");
   unsigned long delaytime = millis();
-  while ((delaytime - timer) < 3000){
+  while ((delaytime - timer) < 6000){
     digitalWrite(buzzer, HIGH);
-    delay(1);
+    delayMicroseconds(500);
     digitalWrite(buzzer, LOW);
-    delay(1);
+    delayMicroseconds(500);
     delaytime = millis();
   }
 }
 
 
+
 void setup() {
 
+  //some pins initially set to input to prevent misfire of ignition circuits on program startup.
   pinMode(drogue_deploy_pin, INPUT_PULLUP);
   pinMode(main_deploy_pin, INPUT_PULLUP);
   pinMode(buzzer, OUTPUT);
-  pinMode(gpsRead, INPUT_PULLUP);
-  pinMode(ignRead, INPUT_PULLUP);
+  pinMode(gpsRead, INPUT);
+  pinMode(ignRead, INPUT);
   pinMode(13, OUTPUT);
   digitalWrite(13, HIGH);
 
@@ -112,7 +115,7 @@ void setup() {
   //begin program timing
   startMillis = millis();
 
-  SoundBuzzer(startMillis);
+  //SoundBuzzer(startMillis);
 
   //=======================================================
   //Barometer Setup, looks awful but sadly its necessary
@@ -128,13 +131,14 @@ void setup() {
                            //if (! bmp.begin_SPI(BMP_CS)) {  // hardware SPI mode
                            //if (! bmp.begin_SPI(BMP_CS, BMP_SCK, BMP_MISO, BMP_MOSI)) {  // software SPI mode
     Serial.println("Could not find a valid BMP3 sensor, check wiring");
-    while (1)
-      ;
+    while (!bmp.begin_I2C()){
+      delay(200);
+    }
   }
 
   // Set up oversampling and filter initialization
   bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_2X);
-  bmp.setPressureOversampling(BMP3_OVERSAMPLING_32X);
+  bmp.setPressureOversampling(BMP3_OVERSAMPLING_16X);
   bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_DISABLE);  //recommended setting for drop detection, makes testing slightly unreliable as is not suited to static environments with people moving around it
   bmp.setOutputDataRate(BMP3_ODR_50_HZ);
 
@@ -170,7 +174,7 @@ void setup() {
 
   float offsets[] = { mpu.XAOffset, mpu.YAOffset, mpu.ZAOffset, mpu.XSOffset, mpu.YSOffset, mpu.ZSOffset, bmp.zeroHeight };  //currently only using one offset
   dlsd.newOffsetlog("offsets.txt", 7, "XAOffset,YAOffset,ZAOffset,XSOffset,YSOffset,ZSOffset,zeroHeight", offsets);
-  dlsd.newDatalog("datalog.txt", "acc,spin,height,pressure");
+  dlsd.newDatalog("datalog.txt", "acc,spin,alt,pressure");
 
 
   //=======================================================
@@ -194,19 +198,39 @@ void setup() {
 
   flight_state_active = false;
 
-  //buzzer setup steps
+//buzzing
+  currentMillis=millis();
+  SoundBuzzer(currentMillis);
+
+  Serial.print("Gps and Ign: ");
+  Serial.print(GpsArmFlag);
+  Serial.println(IgnArmFlag);
+
+/*
   while (GpsArmFlag == false || IgnArmFlag == false){
+    currentMillis = millis();
     GpsArmFlag = digitalRead(gpsRead);
     IgnArmFlag = digitalRead(ignRead);
-    if (IgnArmFlag == true){
-      SoundBuzzer(millis());
-    } else if (GpsArmFlag == true){
-      SoundBuzzer(millis());
+    if(IgnArmFlag == true && iarmed == false){
+      iarmed = true;
+      SoundBuzzer(currentMillis);
+    }
+    if(GpsArmFlag == true && garmed == false){
+      garmed = true;
+      SoundBuzzer(currentMillis);
+    }
+  }
+*/
+
+  while (IgnArmFlag == false){
+    currentMillis = millis();
+    IgnArmFlag = digitalRead(ignRead);
+    if(IgnArmFlag == true && iarmed == false){
+      iarmed = true;
+      SoundBuzzer(currentMillis);
     }
   }
 
-  Serial3.println("AT+SEND=3,5,ARMED");
-  Serial.print("Ready");
 }
 
 void loop() {
@@ -255,7 +279,7 @@ void loop() {
       break;
 
     case 3:
-      if (alt < 1450 && currentMillis - time_drogue_deployed > 3000) {
+      if (alt < 1450 && (currentMillis - time_drogue_deployed) > 3000) {
         if (flight_state_active) {
           digitalWrite(main_deploy_pin, HIGH);
           Serial3.println("AT+SEND=3,12,MAINDEPLOYED\r\n");
@@ -301,22 +325,30 @@ void loop() {
 
 
 
-  if (flight_state_active == false && Serial3.available() > 0) {
+  if (Serial3.available() > 0) {
     incomingByte = Serial3.read();
     if (incomingByte == 80) {
       telemetrySender.sendTelemetry(data);
       Serial.println("Telemetry request recieved");
+
     } else if (incomingByte == 83) {
       Serial.println("Telemetry Request Recieved");
       flight_state_active = true;
       flight_status = WeeBoyIdle;
 
-      //try and reset peak altitude?
+      //important to prevent immediate firing of drogue on startup, likely wont happen.
+      //bmp.highestAltitude = alt - bmp.zeroHeight;
+      maxAlt = alt;
+      bmp.highestAltitude = bmp.currentHeight;
 
     } else if (incomingByte == 66) {
       flight_status = WeeBoyIdle;
+      //bmp.highestAltitude = alt;
       Serial.println("Telemetry Request Recieved");
-    }
+      maxAlt = alt;
+      bmp.highestAltitude = bmp.currentHeight;
+    } 
+
     else{
       //
     }

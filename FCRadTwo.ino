@@ -254,16 +254,17 @@ void loop() {
 
   //perform flight logic
   switch (flight_status) {
-    case 0:
+    case 0;
+      bmp.highestAltitude = alt;
       if (acc > 90) {
         //Big Boy Launch
-
         flight_status = PoweredFlight;
         time_since_motor_burn = millis();
       }
       break;
 
     case 1:
+     bmp.highestAltitude = alt;
       if (acc < 30 && time_since_motor_burn > 2000) {
         flight_status = Coasting;
         time_since_motor_burnout = millis();

@@ -20,6 +20,8 @@
 //declare timing variables/constants
 unsigned long startMillis;
 unsigned long currentMillis;
+unsigned long time_since_motor_burn;
+unsigned long time_since_motor_burnout;
 unsigned long time_main_deployed;
 unsigned long time_drogue_deployed;
 
@@ -253,21 +255,23 @@ void loop() {
   //perform flight logic
   switch (flight_status) {
     case 0:
-      if (acc > 40) {
+      if (acc > 90) {
         //Big Boy Launch
 
         flight_status = PoweredFlight;
+        time_since_motor_burn = millis();
       }
       break;
 
     case 1:
-      if (acc < 30) {
+      if (acc < 30 && time_since_motor_burn > 2000) {
         flight_status = Coasting;
+        time_since_motor_burnout = millis();
       }
       break;
 
     case 2:
-      if (bmp.IsDescending() == true) {
+      if (bmp.IsDescending() == true && time_since_motor_burnout > 2000) {
         if (flight_state_active) {
           digitalWrite(drogue_deploy_pin, HIGH);
           Serial3.println("AT+SEND=3,14,DROGUEDEPLOYED\r\n");
